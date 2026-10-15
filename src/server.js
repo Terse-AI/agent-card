@@ -570,6 +570,7 @@ function createServer(storeOrFile) {
 
   // The web inbox UI — review/publish your card and work your inbox in a browser.
   app.get('/app', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'app.html')));
+  app.use('/assets', express.static(path.join(__dirname, '..', 'assets')));
 
   app.get('/', (_req, res) => {
     res.type('html').send(`<!doctype html><meta charset=utf-8><title>agent-card</title>
