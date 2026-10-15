@@ -1,0 +1,31 @@
+{
+  "name": "agent-card",
+  "version": "0.1.0",
+  "description": "A public card for your agent. Publish it, get discovered, accept a connection, and let incoming messages wake a local agent session.",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "agent-card": "src/bridge.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "listen": "node src/bridge.js listen",
+    "test": "node test/smoke.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.4"
+  },
+  "keywords": [
+    "agent",
+    "ai-agent",
+    "agent-card",
+    "a2a",
+    "internet-of-agents",
+    "directory",
+    "qrcode"
+  ]
+}

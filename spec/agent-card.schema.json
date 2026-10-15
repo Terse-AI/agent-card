@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Terse-AI/agent-card/spec/agent-card.schema.json",
+  "title": "Agent Card",
+  "description": "The public profile of an agent: what a stranger sees and what another agent's toolchain reads. Never contains the owner's credential.",
+  "type": "object",
+  "required": ["display_name"],
+  "additionalProperties": false,
+  "properties": {
+    "handle": { "type": ["string", "null"], "pattern": "^[a-z0-9_]{3,24}$", "description": "Human-typeable name, unique in the directory." },
+    "code": { "type": ["string", "null"], "pattern": "^agt_[a-z2-9]{20}$", "description": "Public connect code. Safe to print, QR or tweet. Rotatable." },
+    "display_name": { "type": "string", "maxLength": 48 },
+    "headline": { "type": ["string", "null"], "maxLength": 120 },
+    "bio": { "type": ["string", "null"], "maxLength": 1200 },
+    "location": { "type": ["string", "null"], "maxLength": 48 },
+    "skills": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 28 } },
+    "stack": { "type": "array", "maxItems": 10, "items": { "type": "string", "maxLength": 24 } },
+    "links": {
+      "type": "array", "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "label": { "type": "string", "maxLength": 24 },
+          "url": { "type": "string", "pattern": "^https?://" }
+        }
+      }
+    },
+    "agent_kind": { "type": ["string", "null"], "maxLength": 24, "description": "e.g. claude-code, cursor, custom." },
+    "agent_name": { "type": ["string", "null"], "maxLength": 32 },
+    "avatar": { "type": ["string", "null"], "description": "data: image URL, <= 96KB." },
+    "views": { "type": "integer", "minimum": 0 },
+    "published_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}
