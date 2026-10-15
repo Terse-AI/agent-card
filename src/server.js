@@ -18,6 +18,7 @@ const path = require('path');
 const QRCode = require('qrcode');
 const { createStore } = require('./store');
 const { cardPage } = require('./render');
+const C = require('./canonical');
 const L = require('./limits');
 const {
   sha, uuid, nowIso, mintCode, normaliseHandle, handleFromName,
@@ -79,6 +80,8 @@ function publicCard(p) {
     skills: p.skills || [], stack: p.stack || [], links: p.links || [],
     agent_kind: p.agent_kind || null, agent_name: p.agent_name || null,
     avatar: p.avatar || null, views: p.views || 0, published_at: p.published_at || null,
+    signed: !!p.signature,
+    public_key: p.public_key || null, signature: p.signature || null, signed_at: p.signed_at || null,
   };
 }
 function ownerCard(p) {
@@ -91,9 +94,19 @@ function ownerCard(p) {
   };
 }
 
+// Pick a backend: an already-built store, a .db/.sqlite path (or AGENT_CARD_SQLITE)
+// for the built-in SQLite store, otherwise the JSON-file store. node:sqlite is
+// required lazily so the JSON path never loads it.
+function openStore(storeOrFile) {
+  if (storeOrFile && typeof storeOrFile === 'object' && storeOrFile.getProfile) return storeOrFile;
+  const sqlitePath = (typeof storeOrFile === 'string' && /\.(db|sqlite)$/.test(storeOrFile))
+    ? storeOrFile : process.env.AGENT_CARD_SQLITE;
+  if (sqlitePath) return require('./store.sqlite').createSqliteStore(sqlitePath);
+  return createStore(typeof storeOrFile === 'string' ? storeOrFile : undefined);
+}
+
 function createServer(storeOrFile) {
-  const store = (storeOrFile && typeof storeOrFile === 'object' && storeOrFile.getProfile)
-    ? storeOrFile : createStore(storeOrFile);
+  const store = openStore(storeOrFile);
   const app = express();
   app.use(express.json({ limit: '2mb' }));
   app.disable('x-powered-by');
@@ -269,12 +282,10 @@ function createServer(storeOrFile) {
   });
 
   // The A2A-style card: point a stranger's toolchain at one URL and it knows what
-  // it is talking to without learning our schema first.
-  app.get('/v1/card/:ref/agent.json', (req, res) => {
-    const { row } = resolve(req.params.ref);
-    if (!row || row.status !== 'published') return res.status(404).json({ error: 'No such card' });
-    res.set('Cache-Control', 'public, max-age=120');
-    res.json({
+  // it is talking to without learning our schema first. Carries the signature so a
+  // verifier can confirm authenticity without trusting this directory.
+  function buildAgentJson(row) {
+    return {
       protocolVersion: '0.3.0',
       name: row.agent_name || row.display_name,
       description: row.headline || row.bio || `${row.display_name} on agent-card`,
@@ -292,7 +303,86 @@ function createServer(storeOrFile) {
       capabilities: { streaming: true, pushNotifications: true },
       defaultInputModes: ['text/plain'],
       defaultOutputModes: ['text/plain'],
+      signatures: row.signature ? [{
+        algorithm: 'ed25519', canonical: 'agent-card/v1',
+        publicKey: row.public_key, fingerprint: C.fingerprint(row.public_key),
+        signature: row.signature, signedAt: row.signed_at || null,
+        // The exact object that was signed, so any resolver can verify offline.
+        payload: C.signedView(row),
+        verified: C.verify(publicCard(row), row.public_key, row.signature),
+      }] : undefined,
+    };
+  }
+  app.get('/v1/card/:ref/agent.json', (req, res) => {
+    const { row } = resolve(req.params.ref);
+    if (!row || row.status !== 'published') return res.status(404).json({ error: 'No such card' });
+    res.set('Cache-Control', 'public, max-age=120');
+    res.json(buildAgentJson(row));
+  });
+
+  // POST /v1/card/signature  { public_key, signature } — the owner registers a
+  // signature their local key made over this card. The server accepts it only if
+  // it verifies against the card as stored, so a stored signature always checks out.
+  app.post('/v1/card/signature', requireIdentity, (req, res) => {
+    const p = store.getProfile(req.idHash);
+    if (!p) return res.status(404).json({ error: 'No card yet' });
+    if (p.status !== 'published') return res.status(400).json({ error: 'Publish before signing' });
+    const public_key = (req.body?.public_key || '').toString();
+    const signature = (req.body?.signature || '').toString();
+    if (!public_key || !signature) return res.status(400).json({ error: 'public_key and signature are required' });
+    if (!C.verify(publicCard(p), public_key, signature)) {
+      return res.status(400).json({ error: 'Signature does not verify over this card. Re-sign the current card.' });
+    }
+    store.upsertProfile(req.idHash, { public_key, signature, signed_at: nowIso(), updated_at: nowIso() });
+    res.json({ ok: true, fingerprint: C.fingerprint(public_key), signed_at: nowIso() });
+  });
+
+  // GET /v1/card/:ref/verify — recompute the verdict from the stored fields, so a
+  // client can trust the card without trusting the directory's say-so.
+  app.get('/v1/card/:ref/verify', (req, res) => {
+    const { row } = resolve(req.params.ref);
+    if (!row || row.status !== 'published') return res.status(404).json({ error: 'No such card' });
+    const verified = !!row.signature && C.verify(publicCard(row), row.public_key, row.signature);
+    res.json({
+      signed: !!row.signature, verified,
+      public_key: row.public_key || null, fingerprint: row.public_key ? C.fingerprint(row.public_key) : null,
+      signed_at: row.signed_at || null, canonical: 'agent-card/v1',
     });
+  });
+
+  // POST /v1/federation/ingest  { card, public_key, signature } — a signed card
+  // from ANOTHER directory. Verified here with no trust in its origin, then made
+  // discoverable as a read-only federated card. (Cross-directory messaging is
+  // future work; this proves the verify-anywhere primitive.)
+  app.post('/v1/federation/ingest', (req, res) => {
+    const card = req.body?.card || {};
+    const public_key = (req.body?.public_key || '').toString();
+    const signature = (req.body?.signature || '').toString();
+    if (!C.verify(card, public_key, signature)) {
+      return res.status(400).json({ error: 'Signed card does not verify', verified: false });
+    }
+    const fp = C.fingerprint(public_key);
+    const identity = 'fed_' + fp;
+    // A foreign card must not claim a code (a connect credential) already live
+    // here, or it would shadow / overwrite the local owner of that code.
+    const codeOwner = card.code && store.getProfileByCode(card.code);
+    if (codeOwner && codeOwner.identity !== identity) {
+      return res.status(409).json({ error: 'That code is already registered in this directory' });
+    }
+    let handle = normaliseHandle(card.handle).handle;
+    const taken = handle && store.getProfileByHandle(handle);
+    if (taken && taken.identity !== identity) handle = handleFromName(card.display_name || 'agent', (h) => !!store.getProfileByHandle(h));
+    store.upsertProfile(identity, {
+      handle, code: card.code || null,
+      display_name: card.display_name || null, headline: card.headline || null,
+      bio: card.bio || null, location: card.location || null,
+      skills: card.skills || [], stack: card.stack || [], links: card.links || [],
+      agent_kind: card.agent_kind || null, agent_name: card.agent_name || null,
+      status: 'published', discoverable: true, drafted_by: 'federation',
+      public_key, signature, signed_at: nowIso(),
+      created_at: nowIso(), updated_at: nowIso(), published_at: card.published_at || nowIso(),
+    });
+    res.json({ ok: true, verified: true, handle, fingerprint: fp });
   });
 
   // QR of the share URL — SVG so it scales and stays crisp in print.
@@ -468,12 +558,25 @@ function createServer(storeOrFile) {
   app.get('/@:handle', (req, res) => servePage(req.params.handle, res));
   app.get('/c/:code', (req, res) => servePage(req.params.code, res));
 
+  // Self-hosting: a single card at its own domain's well-known path, so an A2A
+  // resolver pointed at the domain finds it the standard way. Set PRIMARY_HANDLE.
+  app.get('/.well-known/agent-card.json', (_req, res) => {
+    const h = (process.env.PRIMARY_HANDLE || '').replace(/^@/, '').toLowerCase();
+    if (!h) return res.status(404).json({ error: 'No primary card. Set PRIMARY_HANDLE to serve one here.' });
+    const row = store.getProfileByHandle(h) || store.getProfileByCode(h);
+    if (!row || row.status !== 'published') return res.status(404).json({ error: 'Primary card not published' });
+    res.set('Cache-Control', 'public, max-age=120').json(buildAgentJson(row));
+  });
+
+  // The web inbox UI — review/publish your card and work your inbox in a browser.
+  app.get('/app', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'app.html')));
+
   app.get('/', (_req, res) => {
     res.type('html').send(`<!doctype html><meta charset=utf-8><title>agent-card</title>
 <body style="font:16px/1.6 system-ui;max-width:640px;margin:48px auto;padding:0 20px;background:#0b0b12;color:#f3f3f7">
 <h1>agent-card</h1>
 <p>A public card for your agent. Publish it, get discovered, accept a connection, and let incoming messages wake a local agent session.</p>
-<p><a style="color:#8b7bff" href="/v1/directory">Browse the directory →</a></p>
+<p><a style="color:#8b7bff" href="/app">Open the inbox app →</a> &nbsp; <a style="color:#8b7bff" href="/v1/directory">Browse the directory →</a></p>
 <p style="color:#9a9aad">Get a card: <code>npx agent-card init</code></p></body>`);
   });
 

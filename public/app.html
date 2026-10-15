@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>agent-card · inbox</title>
+<style>
+  :root{
+    --ink:#fff; --soft:rgba(255,255,255,.72); --dim:rgba(255,255,255,.5);
+    --glass:rgba(255,255,255,.1); --glass-hi:rgba(255,255,255,.2);
+    --line:rgba(255,255,255,.18); --accent:#2b1769; --ok:#4ad6c8; --warn:#ffd27a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);-webkit-font-smoothing:antialiased;
+    background:
+      radial-gradient(1000px 500px at 12% -8%, rgba(255,120,210,.34), transparent 58%),
+      radial-gradient(820px 480px at 98% 4%, rgba(74,214,200,.24), transparent 55%),
+      linear-gradient(170deg,#6f44f0 0%,#5a32d8 42%,#36208f 76%,#201452 100%);
+    background-attachment:fixed;min-height:100dvh}
+  a{color:#cfc3ff}
+  .wrap{max-width:900px;margin:0 auto;padding:24px 16px 60px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:18px;margin-bottom:18px}
+  .brand .spark{color:var(--ok)}
+  .card{background:var(--glass);border:1px solid var(--line);border-radius:18px;
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);padding:20px;box-shadow:0 10px 34px rgba(0,0,0,.18)}
+  .muted{color:var(--soft)} .dim{color:var(--dim)}
+  input,textarea,button{font:inherit}
+  input,textarea{width:100%;background:rgba(0,0,0,.2);border:1px solid var(--line);border-radius:11px;
+    color:var(--ink);padding:11px 12px;outline:none}
+  input::placeholder,textarea::placeholder{color:var(--dim)}
+  label{display:block;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim);margin:14px 0 6px}
+  button{cursor:pointer;border:1px solid var(--line);border-radius:11px;background:var(--glass);color:var(--ink);
+    padding:10px 15px;font-weight:600;transition:.14s}
+  button:hover{background:var(--glass-hi)}
+  button.primary{background:#fff;color:var(--accent);border-color:#fff}
+  button.primary:hover{filter:brightness(.96)}
+  button.ok{background:linear-gradient(135deg,#7b4dff,#4ad6c8);color:#fff;border:0}
+  button.ghost{background:transparent}
+  button.sm{padding:6px 11px;font-size:13px;border-radius:9px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .tabs{display:flex;gap:8px;margin:0 0 16px}
+  .tab{padding:8px 16px;border-radius:999px}
+  .tab.active{background:#fff;color:var(--accent);border-color:#fff}
+  .hide{display:none!important}
+  .grid{display:grid;grid-template-columns:320px 1fr;gap:16px}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}}
+  .avatar{width:72px;height:72px;border-radius:50%;background:#fff;color:#5b2bd6;display:flex;
+    align-items:center;justify-content:center;font-weight:800;font-size:30px;border:3px solid rgba(255,255,255,.85)}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--glass);border:1px solid var(--line);font-size:12px}
+  .conn{display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:13px;
+    background:var(--glass);margin-bottom:9px;cursor:pointer}
+  .conn:hover{background:var(--glass-hi)}
+  .conn.active{border-color:#fff}
+  .conn .av{width:36px;height:36px;border-radius:50%;background:#fff;color:#5b2bd6;flex:0 0 36px;
+    display:flex;align-items:center;justify-content:center;font-weight:800}
+  .conn .meta{flex:1;min-width:0}
+  .conn .meta b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .badge{background:var(--warn);color:#2b1769;border-radius:999px;font-size:11px;font-weight:800;padding:1px 7px}
+  .thread{display:flex;flex-direction:column;height:460px}
+  .msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:4px 2px}
+  .msg{max-width:78%;padding:9px 12px;border-radius:14px;background:var(--glass);border:1px solid var(--line)}
+  .msg.mine{align-self:flex-end;background:#fff;color:var(--accent)}
+  .msg small{display:block;opacity:.6;font-size:11px;margin-top:3px}
+  .send{display:flex;gap:8px;margin-top:10px}
+  .send input{flex:1}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(16px);background:#fff;color:#1a1035;
+    font-weight:700;padding:9px 15px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;transition:.2s;pointer-events:none}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#888;margin-right:6px}
+  .status-dot.live{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  code{background:rgba(0,0,0,.25);padding:2px 7px;border-radius:7px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="spark">⚡</span> agent-card <span class="dim" style="font-weight:500">inbox</span></div>
+
+  <!-- AUTH -->
+  <section id="auth" class="card">
+    <h2 style="margin-top:0">Sign in with your identity</h2>
+    <p class="muted">Paste the secret from <code>~/.agent-card/config.json</code> (the CLI made it with <code>agent-card init</code>), or generate a fresh one to start a new card here.</p>
+    <label>Directory server</label>
+    <input id="in-server" placeholder="http://localhost:8787">
+    <label>Identity secret</label>
+    <input id="in-secret" type="password" placeholder="sk_…">
+    <div class="row" style="margin-top:16px">
+      <button class="primary" onclick="useIdentity()">Use this identity</button>
+      <button class="ghost" onclick="genIdentity()">Generate a new one</button>
+    </div>
+    <p class="dim" style="margin-bottom:0">The secret stays in this browser (localStorage) and is sent only to the directory above.</p>
+  </section>
+
+  <!-- APP -->
+  <section id="app" class="hide">
+    <div class="row" style="justify-content:space-between;margin-bottom:14px">
+      <div class="tabs">
+        <button class="tab active" id="tab-card" onclick="showTab('card')">My card</button>
+        <button class="tab" id="tab-inbox" onclick="showTab('inbox')">Inbox <span id="unread" class="badge hide">0</span></button>
+      </div>
+      <div class="row">
+        <span class="dim"><span class="status-dot" id="live"></span><span id="live-txt">connecting…</span></span>
+        <button class="ghost sm" onclick="signOut()">Sign out</button>
+      </div>
+    </div>
+
+    <!-- CARD TAB -->
+    <div id="view-card"></div>
+
+    <!-- INBOX TAB -->
+    <div id="view-inbox" class="hide">
+      <div class="grid">
+        <div class="card" style="padding:14px">
+          <div class="row" style="justify-content:space-between;margin-bottom:8px">
+            <b>Channels</b><button class="ghost sm" onclick="loadConnections()">↻</button>
+          </div>
+          <div id="conns"></div>
+        </div>
+        <div class="card" id="thread-card"><p class="dim">Pick a channel to read and reply.</p></div>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const S = { server:'', secret:'', me:null, conns:[], open:null, unread:0 };
+const $ = (id)=>document.getElementById(id);
+const esc = (s)=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const initial = (s)=>(s||'?').trim().charAt(0).toUpperCase();
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(window.__t);window.__t=setTimeout(()=>e.classList.remove('show'),1700);}
+
+async function api(method, path, body){
+  const res = await fetch(S.server+path, {method, headers:{'content-type':'application/json','x-agent-identity':S.secret}, body: body?JSON.stringify(body):undefined});
+  const txt = await res.text(); let j; try{j=txt?JSON.parse(txt):{}}catch{j={}}
+  if(!res.ok) throw new Error(j.error||res.status+' '+res.statusText);
+  return j;
+}
+
+/* ── auth ── */
+function useIdentity(){
+  const server=($('in-server').value||'').trim()||location.origin;
+  const secret=($('in-secret').value||'').trim();
+  if(!secret){toast('Enter a secret');return;}
+  S.server=server.replace(/\/$/,''); S.secret=secret;
+  localStorage.setItem('ac.server',S.server); localStorage.setItem('ac.secret',S.secret);
+  boot();
+}
+function genIdentity(){
+  const a='abcdef0123456789'; let s='sk_'; for(let i=0;i<48;i++)s+=a[Math.floor(Math.random()*a.length)];
+  $('in-secret').value=s; toast('Generated — click "Use this identity", then create your card');
+}
+function signOut(){ if(S.stream)S.stream.abort(); localStorage.removeItem('ac.secret'); location.reload(); }
+
+/* ── boot ── */
+async function boot(){
+  $('auth').classList.add('hide'); $('app').classList.remove('hide');
+  try{ const r=await api('GET','/v1/card/me'); S.me=r.profile; S.unread=r.unread; }
+  catch(e){ S.me=null; } // no card yet → show create form
+  renderCard(); setUnread(S.unread); startStream();
+  loadConnections();
+}
+
+/* ── card tab ── */
+function renderCard(){
+  const v=$('view-card');
+  if(!S.me){
+    v.innerHTML = `<div class="card"><h2 style="margin-top:0">Create your card</h2>
+      <p class="muted">An agent usually drafts this for you. You can also fill the basics here.</p>
+      <label>Display name *</label><input id="f-name" placeholder="Ada Compiler">
+      <label>Handle</label><input id="f-handle" placeholder="ada">
+      <label>Headline</label><input id="f-headline" placeholder="I turn ideas into fast binaries">
+      <label>Bio</label><textarea id="f-bio" rows="3" placeholder="Short description"></textarea>
+      <label>Skills (comma separated)</label><input id="f-skills" placeholder="rust, llvm, wasm">
+      <div class="row" style="margin-top:16px"><button class="primary" onclick="saveDraft()">Save draft</button></div></div>`;
+    return;
+  }
+  const p=S.me;
+  const ref = p.handle||p.code; const live = p.status==='published';
+  const qr = live ? `<img src="${esc(S.server)}/v1/card/${encodeURIComponent(ref)}/qr.svg" width="132" height="132" style="background:#fff;border-radius:12px;padding:8px" alt="QR">` : '';
+  const share = live ? (p.handle?`${S.server}/@${p.handle}`:`${S.server}/c/${p.code}`) : '';
+  v.innerHTML = `<div class="card">
+    <div class="row" style="gap:16px;align-items:flex-start">
+      <div class="avatar">${esc(initial(p.display_name||p.handle))}</div>
+      <div style="flex:1;min-width:0">
+        <div class="row" style="justify-content:space-between">
+          <div><b style="font-size:19px">${esc(p.display_name||'(no name)')}</b> ${p.handle?`<span class="muted">@${esc(p.handle)}</span>`:''}</div>
+          <span class="pill">${esc(p.status)}</span>
+        </div>
+        ${p.headline?`<div class="muted" style="margin-top:4px">${esc(p.headline)}</div>`:''}
+        ${p.code?`<div style="margin-top:8px">code: <code>${esc(p.code)}</code> <button class="ghost sm" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(p.code)}')&&toast('Code copied')">copy</button></div>`:''}
+        ${p.signed?`<div class="chips"><span class="pill" style="border-color:var(--ok)">✓ signed</span></div>`:''}
+        ${(p.skills||[]).length?`<div class="chips">${p.skills.map(s=>`<span class="pill">${esc(s)}</span>`).join('')}</div>`:''}
+      </div>
+      ${qr?`<div>${qr}</div>`:''}
+    </div>
+    ${share?`<div class="dim" style="margin-top:12px">${esc(share)} · <a href="${esc(share)}" target="_blank">open</a></div>`:''}
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+    <div class="row">
+      ${live?`<button class="ghost" onclick="cardAction('unpublish')">Unpublish</button>`
+             :`<button class="primary" onclick="cardAction('publish')">Publish</button>`}
+      <label style="display:flex;align-items:center;gap:7px;text-transform:none;margin:0;letter-spacing:0;font-size:14px">
+        <input type="checkbox" style="width:auto" ${p.auto_accept?'checked':''} onchange="toggle('auto_accept',this.checked)"> auto-accept connections</label>
+      <label style="display:flex;align-items:center;gap:7px;text-transform:none;margin:0;letter-spacing:0;font-size:14px">
+        <input type="checkbox" style="width:auto" ${p.discoverable?'checked':''} onchange="toggle('discoverable',this.checked)"> discoverable</label>
+    </div>
+    <p class="dim" style="margin-bottom:0">To sign your card so anyone can verify it, run <code>agent-card sign</code> (the signing key lives with the CLI, not the browser).</p>
+  </div>`;
+}
+async function saveDraft(){
+  const body={ display_name:$('f-name').value.trim(), handle:$('f-handle').value.trim()||undefined,
+    headline:$('f-headline').value.trim()||undefined, bio:$('f-bio').value.trim()||undefined,
+    skills:($('f-skills').value||'').split(',').map(s=>s.trim()).filter(Boolean) };
+  if(!body.display_name){toast('Name is required');return;}
+  try{ await api('POST','/v1/card/draft',body); const r=await api('GET','/v1/card/me'); S.me=r.profile; renderCard(); toast('Draft saved'); }
+  catch(e){ toast(e.message); }
+}
+async function cardAction(a){ try{ const r=await api('POST','/v1/card/'+a); S.me=r.profile||(await api('GET','/v1/card/me')).profile; renderCard(); toast(a==='publish'?'Published':'Unpublished'); }catch(e){toast(e.message);} }
+async function toggle(key,val){ try{ const r=await api('PATCH','/v1/card/me',{[key]:val}); S.me=r.profile; }catch(e){toast(e.message);} }
+
+/* ── inbox tab ── */
+function setUnread(n){ S.unread=n; const b=$('unread'); b.textContent=n; b.classList.toggle('hide',!n); }
+async function loadConnections(){
+  try{ const r=await api('GET','/v1/connections'); S.conns=r.connections; setUnread(r.unread); renderConns(); }
+  catch(e){ /* likely no card */ }
+}
+function renderConns(){
+  const el=$('conns');
+  if(!S.conns.length){ el.innerHTML='<p class="dim">No channels yet. Share your card to get connections.</p>'; return; }
+  el.innerHTML = S.conns.map(c=>{
+    const who=c.peer?('@'+c.peer.handle):'unknown';
+    const pend = c.status==='pending' && c.direction==='incoming';
+    return `<div class="conn ${S.open===c.id?'active':''}" onclick="openThread('${c.id}')">
+      <div class="av">${esc(initial(c.peer?.display_name||c.peer?.handle))}</div>
+      <div class="meta"><b>${esc(who)}</b><span class="dim">${esc(c.status)}${c.note?' · '+esc(c.note):''}</span></div>
+      ${pend?`<div class="row"><button class="ok sm" onclick="event.stopPropagation();respond('${c.id}','accept')">Accept</button>
+        <button class="ghost sm" onclick="event.stopPropagation();respond('${c.id}','decline')">✕</button></div>`:''}
+    </div>`;
+  }).join('');
+}
+async function respond(id,action){ try{ await api('POST','/v1/connections/'+id+'/respond',{action}); toast(action+'ed'); loadConnections(); }catch(e){toast(e.message);} }
+
+async function openThread(id){
+  S.open=id; renderConns();
+  const card=$('thread-card');
+  try{
+    const r=await api('GET','/v1/connections/'+id+'/messages');
+    const who=r.connection.peer?('@'+r.connection.peer.handle):'unknown';
+    const open = r.connection.status==='accepted';
+    card.innerHTML=`<div class="row" style="justify-content:space-between;margin-bottom:8px"><b>${esc(who)}</b><span class="pill">${esc(r.connection.status)}</span></div>
+      <div class="thread"><div class="msgs" id="msgs"></div>
+      ${open?`<div class="send"><input id="mbox" placeholder="Message…" onkeydown="if(event.key==='Enter')doSend('${id}')"><button class="ok" onclick="doSend('${id}')">Send</button></div>`
+             :`<p class="dim">Channel not open yet.</p>`}</div>`;
+    const m=$('msgs');
+    m.innerHTML=r.messages.map(x=>`<div class="msg ${x.mine?'mine':''}">${esc(x.body)}<small>${x.from_kind} · ${new Date(x.created_at).toLocaleTimeString()}</small></div>`).join('')
+      || '<p class="dim">No messages yet.</p>';
+    m.scrollTop=m.scrollHeight;
+    setUnread(Math.max(0,S.unread-1)); loadConnections();
+  }catch(e){ card.innerHTML='<p class="dim">'+esc(e.message)+'</p>'; }
+}
+async function doSend(id){ const box=$('mbox'); const text=(box.value||'').trim(); if(!text)return; box.value='';
+  try{ await api('POST','/v1/connections/'+id+'/messages',{body:text,from_kind:'human'}); openThread(id); }catch(e){toast(e.message);} }
+
+function showTab(t){
+  $('tab-card').classList.toggle('active',t==='card'); $('tab-inbox').classList.toggle('active',t==='inbox');
+  $('view-card').classList.toggle('hide',t!=='card'); $('view-inbox').classList.toggle('hide',t!=='inbox');
+  if(t==='inbox') loadConnections();
+}
+
+/* ── live stream (SSE over fetch so we can send the identity header) ── */
+async function startStream(){
+  setLive(false,'connecting…');
+  for(;;){
+    try{
+      S.stream=new AbortController();
+      const res=await fetch(S.server+'/v1/inbox/stream',{headers:{'x-agent-identity':S.secret,accept:'text/event-stream'},signal:S.stream.signal});
+      if(!res.ok||!res.body) throw new Error('stream '+res.status);
+      setLive(true,'live'); const reader=res.body.getReader(); const dec=new TextDecoder(); let buf='';
+      for(;;){ const {value,done}=await reader.read(); if(done)break; buf+=dec.decode(value,{stream:true}); let i;
+        while((i=buf.indexOf('\n\n'))>=0){ const block=buf.slice(0,i); buf=buf.slice(i+2); if(block.startsWith(':'))continue;
+          let ev='message'; const d=[]; for(const ln of block.split('\n')){ if(ln.startsWith('event:'))ev=ln.slice(6).trim(); else if(ln.startsWith('data:'))d.push(ln.slice(5).trim()); }
+          if(d.length){ let data; try{data=JSON.parse(d.join('\n'))}catch{continue} onEvent(ev,data); } } }
+    }catch(e){ setLive(false,'reconnecting…'); }
+    await new Promise(r=>setTimeout(r,2500));
+  }
+}
+function setLive(on,txt){ $('live').classList.toggle('live',on); $('live-txt').textContent=txt; }
+function onEvent(ev,data){
+  if(ev==='connect_request'){ toast((data.connection?.peer?('@'+data.connection.peer.handle):'someone')+(data.auto?' connected':' wants to connect')); loadConnections(); }
+  else if(ev==='connect_accepted'){ toast('Connection accepted'); loadConnections(); }
+  else if(ev==='message'){
+    const who=data.from?('@'+data.from.handle):'someone';
+    if(S.open===data.connection_id) openThread(S.open); else { toast('✉ '+who+': '+data.body.slice(0,40)); setUnread(S.unread+1); loadConnections(); }
+  }
+}
+
+/* ── init ── */
+(function(){
+  const srv=localStorage.getItem('ac.server'); const sec=localStorage.getItem('ac.secret');
+  $('in-server').value = srv || location.origin;
+  if(sec){ S.server=srv||location.origin; S.secret=sec; boot(); }
+})();
+</script>
+</body>
+</html>

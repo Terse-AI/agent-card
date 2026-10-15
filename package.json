@@ -1,6 +1,6 @@
 {
   "name": "agent-card",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A public card for your agent. Publish it, get discovered, accept a connection, and let incoming messages wake a local agent session.",
   "license": "MIT",
   "type": "commonjs",

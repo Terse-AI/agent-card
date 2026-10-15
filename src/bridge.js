@@ -24,6 +24,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const QRCode = require('qrcode');
 const { mintSecret } = require('./ids');
+const C = require('./canonical');
 
 const CONFIG_DIR = path.join(os.homedir(), '.agent-card');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -86,12 +87,29 @@ async function api(cfg, method, route, body) {
 }
 
 /* ── commands ─────────────────────────────────────────────────────────── */
+// Sign the published card with the local key and register the signature, so the
+// card is verifiable by anyone, in any directory. No-op if unpublished or keyless.
+async function signMyCard(cfg, { quiet = false } = {}) {
+  if (!cfg.privateKeyPem || !cfg.publicKeyPem) return null;
+  const me = await api(cfg, 'GET', '/v1/card/me').catch(() => null);
+  if (!me || me.profile.status !== 'published') return null;
+  const signature = C.sign(me.profile, cfg.privateKeyPem);
+  const r = await api(cfg, 'POST', '/v1/card/signature', { public_key: cfg.publicKeyPem, signature }).catch((e) => ({ error: e.message }));
+  if (!quiet) {
+    if (r && r.ok) console.log(`Signed. fingerprint ${r.fingerprint}`);
+    else console.error('Could not sign:', r && r.error);
+  }
+  return r;
+}
+
 async function cmdInit(flags) {
   let cfg = loadConfig() || {};
   cfg.server = flags.server || cfg.server || DEFAULT_SERVER;
   if (!cfg.secret) cfg.secret = mintSecret();
+  if (!cfg.publicKeyPem) { const kp = C.generateKeypair(); cfg.privateKeyPem = kp.privateKeyPem; cfg.publicKeyPem = kp.publicKeyPem; }
   saveConfig(cfg);
-  console.log(`Identity saved to ${CONFIG_FILE} (keep it secret).`);
+  console.log(`Identity + signing key saved to ${CONFIG_FILE} (keep it secret).`);
+  console.log(`Key fingerprint: ${C.fingerprint(cfg.publicKeyPem)}`);
   console.log(`Directory: ${cfg.server}`);
 
   const name = flags.name;
@@ -138,6 +156,69 @@ async function cmdSet(flags) {
   if (flags.discoverable !== undefined) body.discoverable = flags.discoverable !== 'false' && flags.discoverable !== false;
   const r = await api(cfg, 'PATCH', '/v1/card/me', body);
   console.log('Updated.', `auto_accept=${r.profile.auto_accept} discoverable=${r.profile.discoverable}`);
+  await signMyCard(cfg, { quiet: true }); // editing a signed field invalidates the old signature
+}
+
+async function cmdSign() {
+  const cfg = requireConfig();
+  if (!cfg.publicKeyPem) { console.error('No signing key. Run `agent-card init` (it mints one).'); process.exit(1); }
+  const r = await signMyCard(cfg);
+  if (!r) console.log('Nothing to sign — publish your card first.');
+}
+
+async function cmdVerify(pos) {
+  const cfg = requireConfig();
+  const ref = pos[0]; if (!ref) { console.error('usage: agent-card verify <@handle|code>'); process.exit(1); }
+  const aj = await api(cfg, 'GET', `/v1/card/${encodeURIComponent(ref)}/agent.json`);
+  const sig = aj.signatures && aj.signatures[0];
+  console.log(`card:        ${aj.name}`);
+  if (!sig) { console.log('signature:   (unsigned)'); return; }
+  // Independent recompute — trusts the card's key and bytes, not the directory.
+  const localOk = C.verify(sig.payload, sig.publicKey, sig.signature);
+  console.log(`fingerprint: ${sig.fingerprint}`);
+  console.log(`directory claims verified: ${sig.verified}`);
+  console.log(`local recompute (independent): ${localOk ? 'VERIFIED ✓' : 'FAILED ✗'}`);
+}
+
+async function cmdExport(flags) {
+  const cfg = requireConfig();
+  const me = await api(cfg, 'GET', '/v1/card/me');
+  if (me.profile.status !== 'published') { console.error('Publish first:  agent-card publish'); process.exit(1); }
+  const ref = me.profile.handle || me.profile.code;
+  const aj = await api(cfg, 'GET', `/v1/card/${encodeURIComponent(ref)}/agent.json`);
+  const out = typeof flags.out === 'string' ? flags.out : 'agent-card.json';
+  fs.writeFileSync(out, JSON.stringify(aj, null, 2));
+  console.log(`Wrote ${out}`);
+  console.log('Serve it at:  https://YOURDOMAIN/.well-known/agent-card.json');
+  if (!aj.signatures) console.log('(tip: run `agent-card sign` first so resolvers can verify it offline)');
+}
+
+// resolve is public — it just fetches someone's self-hosted well-known card.
+async function cmdResolve(pos, flags) {
+  const target = pos[0]; if (!target) { console.error('usage: agent-card resolve <domain|url> [--connect]'); process.exit(1); }
+  let url;
+  if (/^https?:\/\//i.test(target)) {
+    url = target.replace(/\/$/, '');
+    if (!/\.json$/i.test(url) && !/\/\.well-known\//.test(url)) url += '/.well-known/agent-card.json';
+  } else url = `https://${target.replace(/\/$/, '')}/.well-known/agent-card.json`;
+
+  console.log(`resolving ${url} …`);
+  const res = await fetch(url, { headers: { accept: 'application/json' } });
+  if (!res.ok) { console.error(`  ${res.status} ${res.statusText}`); process.exit(1); }
+  const aj = await res.json();
+  console.log(`\n${aj.name}${aj.agentCard?.handle ? ' (@' + aj.agentCard.handle + ')' : ''}`);
+  if (aj.description) console.log(aj.description);
+  if (aj.skills?.length) console.log('skills: ' + aj.skills.map((s) => s.name).join(', '));
+  const sig = aj.signatures && aj.signatures[0];
+  if (sig?.payload) {
+    const ok = C.verify(sig.payload, sig.publicKey, sig.signature);
+    console.log(`signature: ${ok ? 'VERIFIED ✓' : 'FAILED ✗'}  (${sig.fingerprint})`);
+  } else console.log('signature: (unsigned)');
+  if (aj.agentCard?.code) {
+    const dir = (aj.agentCard.connect || '').replace(/\/v1\/connect$/, '');
+    console.log(`\nTo open a channel (from where your own card is published):`);
+    console.log(`  agent-card connect ${aj.agentCard.code}${dir ? ` --server ${dir}` : ''}`);
+  }
 }
 
 async function cmdPublish() {
@@ -147,6 +228,7 @@ async function cmdPublish() {
   console.log(`Code:       ${r.code}`);
   console.log(`Share URL:  ${r.share_url}\n`);
   try { console.log(await QRCode.toString(r.share_url, { type: 'terminal', small: true })); } catch { /* ok */ }
+  await signMyCard(cfg);
   console.log('Hand out the URL or the code. Listen for replies:  agent-card listen');
 }
 
@@ -351,7 +433,11 @@ const HELP = `agent-card — a public card for your agent
   agent-card draft --name "…" [--handle h] [--headline "…"] [--bio "…"]
                    [--skill s]… [--stack t]… [--link label=https://…]…
   agent-card set [--auto-accept true|false] [--discoverable true|false] [--headline "…"]…
-  agent-card publish                 publish, mint a code, print the share URL + QR
+  agent-card publish                 publish, mint a code, sign, print share URL + QR
+  agent-card sign                    (re)sign your published card with your local key
+  agent-card verify <@handle|code>   check a card's signature (recomputed locally)
+  agent-card export [--out file]     write agent.json for self-hosting at /.well-known
+  agent-card resolve <domain|url>    fetch + verify a self-hosted card anywhere
   agent-card whoami                  your card, code, unread
   agent-card qr                      print the share URL as a QR in the terminal
   agent-card directory [query]       browse published cards
@@ -374,6 +460,10 @@ async function main() {
       case 'draft': return await cmdDraft(flags);
       case 'set': return await cmdSet(flags);
       case 'publish': return await cmdPublish();
+      case 'sign': return await cmdSign();
+      case 'verify': return await cmdVerify(pos);
+      case 'export': return await cmdExport(flags);
+      case 'resolve': return await cmdResolve(pos, flags);
       case 'whoami': return await cmdWhoami();
       case 'qr': return await cmdQr();
       case 'directory': case 'dir': return await cmdDirectory(pos);

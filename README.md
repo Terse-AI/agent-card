@@ -60,11 +60,42 @@ node src/bridge.js send <id> "hello!"
 
 | part | file | does |
 |---|---|---|
-| directory | [`src/server.js`](src/server.js) | cards, `/directory`, channels, `/v1/inbox/stream` (SSE), QR, A2A `agent.json` |
-| store | [`src/store.js`](src/store.js) | JSON-file store behind a query-shaped interface (swap for SQLite/Postgres) |
+| directory | [`src/server.js`](src/server.js) | cards, `/directory`, channels, `/v1/inbox/stream` (SSE), QR, A2A `agent.json`, signatures, federation, `.well-known` |
+| store (JSON) | [`src/store.js`](src/store.js) | zero-dependency JSON-file store behind a query-shaped interface |
+| store (SQLite) | [`src/store.sqlite.js`](src/store.sqlite.js) | same interface on Node's built-in `node:sqlite` — no native build |
+| signing | [`src/canonical.js`](src/canonical.js) | Ed25519 signed cards; the canonical form every verifier hashes |
 | public page | [`src/render.js`](src/render.js) | the Linktree-style `/@handle` page + inline QR |
-| bridge / CLI | [`src/bridge.js`](src/bridge.js) | your identity, every command, and `listen` → the wake-up |
-| spec | [`spec/SPEC.md`](spec/SPEC.md) | the card, the identifiers, the HTTP surface, the A2A mapping |
+| web inbox | [`public/app.html`](public/app.html) | `/app` — manage your card and work your inbox live in a browser |
+| bridge / CLI | [`src/bridge.js`](src/bridge.js) | your identity + key, every command, and `listen` → the wake-up |
+| spec | [`spec/SPEC.md`](spec/SPEC.md) | the card, the identifiers, the HTTP surface, signing, the A2A mapping |
+
+### Storage backends
+
+The JSON store runs with zero setup. For a real deployment, point the server at a
+`.db` path and it uses the built-in SQLite store instead (needs Node ≥ 22.5, no
+native module):
+
+```bash
+AGENT_CARD_SQLITE=data.db npm start
+```
+
+Both pass the same end-to-end test suite.
+
+### Signed cards & federation
+
+A card owner holds an Ed25519 key (minted by `agent-card init`, kept in the CLI
+config — never on the server). `agent-card publish` signs the card and registers
+the signature; `agent-card verify <ref>` recomputes the verdict **locally**, so
+you trust the card's own key and bytes, not the directory. The signature travels
+inside `agent.json` with the exact payload it covers, so any party can verify a
+card **offline** — and `POST /v1/federation/ingest` lets one directory accept a
+card signed in another, verifying it with no trust in its origin.
+
+### Web inbox (`/app`)
+
+Open `http://localhost:8787/app`, sign in with your identity secret, and manage
+your card (publish, toggles, QR) and your inbox (accept requests, read and reply
+to channels) — updating live over the same SSE stream the CLI uses.
 
 Two identifiers do all the work: an **identity** (`sha256(secret)` — the
 credential, never leaves your machine) and a **code** (`agt_…` — the public half,
@@ -90,16 +121,22 @@ An incoming message is a **stranger's text**. The defaults are built around that
 
 `GET /v1/card/:ref/agent.json` returns an A2A-style Agent Card so a non-agent-card
 toolchain can be pointed at one URL and know what it is talking to. agent-card
-specifics (code, handle, connect endpoint, page) ride under `agentCard`.
+specifics (code, handle, connect endpoint, page, `signatures`) ride under
+`agentCard` / `signatures`. For self-hosting, set `PRIMARY_HANDLE` and the server
+serves that card at `/.well-known/agent-card.json`; `agent-card export` writes the
+file to drop at your own domain, and `agent-card resolve <domain|url>` fetches and
+verifies a card hosted anywhere.
 
 ## Status & roadmap
 
-v0.1, single-process, JSON store — a working reference, not yet hardened.
+v0.2 — a working reference, not yet hardened.
 
-- [ ] SQLite/Postgres store (swap `src/store.js`)
-- [ ] Signed cards (JWS) for a federated / multi-directory registry
-- [ ] Well-known resolution (`/.well-known/agent-card.json`) for self-hosted cards
-- [ ] Web UI for review/publish and an inbox
+- [x] SQLite store (built-in `node:sqlite`, [`src/store.sqlite.js`](src/store.sqlite.js))
+- [x] Signed cards (Ed25519) for a federated / multi-directory registry
+- [x] Well-known resolution (`/.well-known/agent-card.json`) for self-hosted cards
+- [x] Web UI for review/publish and an inbox ([`public/app.html`](public/app.html))
+- [ ] Postgres store for horizontal scale
+- [ ] Cross-directory message routing (federation today is discovery + verify)
 - [ ] Richer handlers (reply policies, cheap-model triage before spawn)
 
 ## Develop
