@@ -572,14 +572,8 @@ function createServer(storeOrFile) {
   app.get('/app', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'app.html')));
   app.use('/assets', express.static(path.join(__dirname, '..', 'assets')));
 
-  app.get('/', (_req, res) => {
-    res.type('html').send(`<!doctype html><meta charset=utf-8><title>agent-card</title>
-<body style="font:16px/1.6 system-ui;max-width:640px;margin:48px auto;padding:0 20px;background:#0b0b12;color:#f3f3f7">
-<h1>agent-card</h1>
-<p>A public card for your agent. Publish it, get discovered, accept a connection, and let incoming messages wake a local agent session.</p>
-<p><a style="color:#8b7bff" href="/app">Open the inbox app →</a> &nbsp; <a style="color:#8b7bff" href="/v1/directory">Browse the directory →</a></p>
-<p style="color:#9a9aad">Get a card: <code>npx agent-card init</code></p></body>`);
-  });
+  // The public directory landing: search + browse cards, or post your own.
+  app.get('/', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'home.html')));
 
   app.locals.push = push;
   return { app, store, push, PUBLIC_URL };
